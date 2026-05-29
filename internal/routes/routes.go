@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"qrstreamer/internal/handler"
 	"qrstreamer/internal/service"
-	"qrstreamer/model/constant"
+	"zaplio/shared/constant"
 
 	"github.com/google/uuid"
 )

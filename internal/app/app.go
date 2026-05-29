@@ -10,10 +10,11 @@ import (
 	"qrstreamer/internal/provider"
 	"qrstreamer/internal/routes"
 	"qrstreamer/internal/service"
-	"qrstreamer/model/constant"
 	"qrstreamer/util"
 	"syscall"
 	"time"
+	"zaplio/shared/constant"
+	"zaplio/shared/pkg/logger"
 
 	"google.golang.org/grpc/connectivity"
 )
@@ -21,19 +22,28 @@ import (
 func Run(cfg *util.Config) {
 	ctx := context.WithValue(context.Background(), constant.CtxReqIDKey, "MAIN")
 
-	logger := provider.NewLogger()
+	log := logger.NewLogger(logger.LoggerConfig{
+		Dir:        util.Configuration.Logger.Dir,
+		FileName:   util.Configuration.Logger.FileName,
+		MaxBackups: util.Configuration.Logger.MaxBackups,
+		MaxSize:    util.Configuration.Logger.MaxSize,
+		MaxAge:     util.Configuration.Logger.MaxAge,
+		Compress:   util.Configuration.Logger.Compress,
+		LocalTime:  util.Configuration.Logger.LocalTime,
+		Level:      util.Configuration.Logger.Level,
+	})
 
 	redis, err := provider.NewRedisConnection(ctx)
 	if err != nil {
-		logger.Errorfctx(provider.AppLog, ctx, false, "Failed connect to Redis: %v", err)
+		log.Errorfctx(logger.AppLog, ctx, false, "Failed connect to Redis: %v", err)
 		return
 	}
 
-	logger.Infofctx(provider.AppLog, ctx, "Application started")
+	log.Infofctx(logger.AppLog, ctx, "Application started")
 
-	app := handler.NewApp(logger)
-	hub := handler.NewHub(logger)
-	svc := service.NewService(logger, hub, app, redis)
+	app := handler.NewApp(log)
+	hub := handler.NewHub(log)
+	svc := service.NewService(log, hub, app, redis)
 
 	go hub.Run()
 
@@ -41,21 +51,21 @@ func Run(cfg *util.Config) {
 		// Setup gRPC client connection
 		grpcServerAddr := fmt.Sprintf("localhost:%d", cfg.Server.Port)
 
-		logger.Infofctx(provider.AppLog, ctx, "Starting gRPC client for server at %s", grpcServerAddr)
+		log.Infofctx(logger.AppLog, ctx, "Starting gRPC client for server at %s", grpcServerAddr)
 		conn, err := app.GRPCClient(grpcServerAddr)
 		if err != nil {
-			logger.Errorfctx(provider.AppLog, ctx, false, "Failed to create gRPC connection: %v", err)
+			log.Errorfctx(logger.AppLog, ctx, false, "Failed to create gRPC connection: %v", err)
 			return
 		}
 		defer app.CloseGRPCConnection()
 
-		logger.Infofctx(provider.AppLog, ctx, "gRPC client connected successfully to %s", grpcServerAddr)
+		log.Infofctx(logger.AppLog, ctx, "gRPC client connected successfully to %s", grpcServerAddr)
 
 		// Monitor connection state
 		for {
 			select {
 			case <-ctx.Done():
-				logger.Infofctx(provider.AppLog, ctx, "gRPC client shutting down")
+				log.Infofctx(logger.AppLog, ctx, "gRPC client shutting down")
 				return
 			default:
 				// Check connection state
@@ -63,20 +73,20 @@ func Run(cfg *util.Config) {
 
 				switch state {
 				case connectivity.Ready:
-					logger.Debugfctx(provider.AppLog, ctx, "gRPC connection is ready")
+					log.Debugfctx(logger.AppLog, ctx, "gRPC connection is ready")
 				case connectivity.Connecting:
-					logger.Infofctx(provider.AppLog, ctx, "gRPC connection is connecting...")
+					log.Infofctx(logger.AppLog, ctx, "gRPC connection is connecting...")
 				case connectivity.TransientFailure:
-					logger.Errorfctx(provider.AppLog, ctx, false, "gRPC connection in transient failure state")
+					log.Errorfctx(logger.AppLog, ctx, false, "gRPC connection in transient failure state")
 					// Wait for state change or timeout
 					if !conn.WaitForStateChange(ctx, state) {
-						logger.Errorfctx(provider.AppLog, ctx, false, "Context cancelled while waiting for state change")
+						log.Errorfctx(logger.AppLog, ctx, false, "Context cancelled while waiting for state change")
 						return
 					}
 				case connectivity.Idle:
-					logger.Infofctx(provider.AppLog, ctx, "gRPC connection is idle")
+					log.Infofctx(logger.AppLog, ctx, "gRPC connection is idle")
 				case connectivity.Shutdown:
-					logger.Errorfctx(provider.AppLog, ctx, false, "gRPC connection is shutdown")
+					log.Errorfctx(logger.AppLog, ctx, false, "gRPC connection is shutdown")
 					return
 				}
 
@@ -89,9 +99,9 @@ func Run(cfg *util.Config) {
 	go func() {
 		// Start WS HTTP server
 		routes.RegisterRoutes(hub, svc)
-		logger.Infofctx(provider.AppLog, ctx, "Websocket Server started on :%d", cfg.Websocket.Port)
+		log.Infofctx(logger.AppLog, ctx, "Websocket Server started on :%d", cfg.Websocket.Port)
 		if err := http.ListenAndServe(fmt.Sprintf(":%d", cfg.Websocket.Port), nil); err != nil {
-			logger.Errorfctx(provider.AppLog, ctx, false, "Failed to start Websocket Server: %v", err)
+			log.Errorfctx(logger.AppLog, ctx, false, "Failed to start Websocket Server: %v", err)
 		}
 	}()
 
@@ -99,11 +109,10 @@ func Run(cfg *util.Config) {
 	signal.Notify(shutdownCh, os.Interrupt, syscall.SIGTERM)
 
 	sig := <-shutdownCh
-	logger.Infofctx(provider.AppLog, ctx, "Receiving signal: %s", sig)
+	log.Infofctx(logger.AppLog, ctx, "Receiving signal: %s", sig)
 
-	func(logger provider.ILogger) {
-
-		logger.Infofctx(provider.AppLog, ctx, "Successfully stop Application.")
-	}(logger)
+	func(l logger.ILogger) {
+		l.Infofctx(logger.AppLog, ctx, "Successfully stop Application.")
+	}(log)
 
 }

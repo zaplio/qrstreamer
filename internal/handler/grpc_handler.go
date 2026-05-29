@@ -3,15 +3,15 @@ package handler
 import (
 	"context"
 	"fmt"
-	"qrstreamer/internal/provider"
-	proto "qrstreamer/model/pb"
+	proto "zaplio/shared/proto/pb"
+	"zaplio/shared/pkg/logger"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
 type App struct {
-	log        provider.ILogger
+	log        logger.ILogger
 	grpcClient proto.WaCoreGatewayClient
 	grpcConn   *grpc.ClientConn
 }
@@ -20,7 +20,7 @@ type server struct {
 	proto.UnimplementedWaCoreGatewayServer
 }
 
-func NewApp(log provider.ILogger) *App {
+func NewApp(log logger.ILogger) *App {
 	return &App{log: log}
 }
 

@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"qrstreamer/internal/provider"
 	"qrstreamer/model"
 	"sync"
 	"time"
+	"zaplio/shared/pkg/logger"
 
 	"github.com/gorilla/websocket"
 )
@@ -26,7 +26,7 @@ type Client struct {
 }
 
 type Hub struct {
-	logger     provider.ILogger
+	logger     logger.ILogger
 	clients    map[string]*Client // map[whatsappID]*Client
 	broadcast  chan []byte
 	register   chan *Client
@@ -41,7 +41,7 @@ func (h *Hub) EmitMessageToClient(ctx context.Context, whatsappID string, data m
 		return err
 	}
 
-	h.logger.Infofctx(provider.AppLog, ctx, "Emitting to websocket client %s", msgBytes)
+	h.logger.Infofctx(logger.AppLog, ctx, "Emitting to websocket client %s", msgBytes)
 
 	// Emit to Websocket client
 	h.EmitToClient(whatsappID, msgBytes)
@@ -100,7 +100,7 @@ func (h *Hub) CloseClientConnection(whatsappID string) {
 		delete(h.clients, whatsappID)
 		close(client.send)
 		client.conn.Close()
-		h.logger.Infofctx(provider.AppLog, client.ctx, "Client disconnected with ID: %s, Address: %s", client.id, client.conn.RemoteAddr())
+		h.logger.Infofctx(logger.AppLog, client.ctx, "Client disconnected with ID: %s, Address: %s", client.id, client.conn.RemoteAddr())
 	}
 }
 
@@ -116,7 +116,7 @@ func (h *Hub) GetwhatsappIDs() []string {
 	return ids
 }
 
-func NewHub(logger provider.ILogger) *Hub {
+func NewHub(logger logger.ILogger) *Hub {
 	return &Hub{
 		logger:     logger,
 		clients:    make(map[string]*Client),
@@ -132,7 +132,7 @@ func (h *Hub) Run() {
 		case client := <-h.register:
 			h.mu.Lock()
 			h.clients[client.id] = client
-			h.logger.Infofctx(provider.AppLog, client.ctx, "Client connected with ID: %s, Address: %s", client.id, client.conn.RemoteAddr())
+			h.logger.Infofctx(logger.AppLog, client.ctx, "Client connected with ID: %s, Address: %s", client.id, client.conn.RemoteAddr())
 			h.mu.Unlock()
 
 			message := model.WSMessage{
@@ -150,7 +150,7 @@ func (h *Hub) Run() {
 				delete(h.clients, client.id)
 				close(client.send)
 				client.conn.Close()
-				h.logger.Infofctx(provider.AppLog, client.ctx, "Client disconnected with ID: %s, Address: %s", client.id, client.conn.RemoteAddr())
+				h.logger.Infofctx(logger.AppLog, client.ctx, "Client disconnected with ID: %s, Address: %s", client.id, client.conn.RemoteAddr())
 			}
 			h.mu.Unlock()
 
@@ -179,7 +179,7 @@ func (c *Client) readPump(h *Hub) {
 		if err != nil {
 			break
 		}
-		h.logger.Debugfctx(provider.AppLog, c.ctx, "Received: %s", message)
+		h.logger.Debugfctx(logger.AppLog, c.ctx, "Received: %s", message)
 		h.broadcast <- message
 	}
 }
@@ -211,7 +211,7 @@ func ServeWS(h *Hub, w http.ResponseWriter, r *http.Request) {
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		h.logger.Errorfctx(provider.AppLog, r.Context(), false, "Upgrade error: %v", err)
+		h.logger.Errorfctx(logger.AppLog, r.Context(), false, "Upgrade error: %v", err)
 		return
 	}
 

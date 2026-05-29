@@ -6,12 +6,12 @@ import (
 	"io"
 	"os"
 	"qrstreamer/internal/handler"
-	"qrstreamer/internal/provider"
 	"qrstreamer/model"
 	"qrstreamer/util"
 	"time"
+	"zaplio/shared/pkg/logger"
 
-	proto "qrstreamer/model/pb"
+	proto "zaplio/shared/proto/pb"
 
 	"github.com/mdp/qrterminal"
 	"github.com/redis/go-redis/v9"
@@ -27,13 +27,13 @@ type QRStreamer interface {
 	StreamWhatsappQR(ctx context.Context, userID string, whatsappID string) error
 }
 type service struct {
-	logger provider.ILogger
+	logger logger.ILogger
 	hub    *handler.Hub
 	app    *handler.App
 	redis  *redis.Client
 }
 
-func NewService(logger provider.ILogger, hub *handler.Hub, app *handler.App, redis *redis.Client) QRStreamer {
+func NewService(logger logger.ILogger, hub *handler.Hub, app *handler.App, redis *redis.Client) QRStreamer {
 	return &service{
 		logger: logger,
 		hub:    hub,
@@ -48,7 +48,7 @@ func (s *service) StreamWhatsappQR(ctx context.Context, userID string, whatsappI
 
 	activeStream, err := s.redis.Get(ctx, streamKey).Bool()
 	if err == nil && activeStream {
-		s.logger.Infofctx(provider.AppLog, ctx, "Stream for whatsappID %s is already running", whatsappID)
+		s.logger.Infofctx(logger.AppLog, ctx, "Stream for whatsappID %s is already running", whatsappID)
 
 		qrKey := fmt.Sprintf(keyQrPrefix, whatsappID)
 		if qrCode, err := s.redis.Get(ctx, qrKey).Result(); err == nil {
@@ -61,7 +61,7 @@ func (s *service) StreamWhatsappQR(ctx context.Context, userID string, whatsappI
 			}
 
 			if err := s.hub.EmitMessageToClient(ctx, whatsappID, message); err != nil {
-				s.logger.Errorfctx(provider.AppLog, ctx, false, "Error emitting QR code: %v", err)
+				s.logger.Errorfctx(logger.AppLog, ctx, false, "Error emitting QR code: %v", err)
 			}
 		}
 
@@ -71,7 +71,7 @@ func (s *service) StreamWhatsappQR(ctx context.Context, userID string, whatsappI
 	// Tandai stream aktif di Redis dengan TTL 1 menit
 	err = s.redis.Set(ctx, streamKey, true, time.Duration(util.Configuration.Cache.WSStream)*time.Second).Err()
 	if err != nil {
-		s.logger.Errorfctx(provider.AppLog, ctx, false, "Error set stream status in Redis: %v", err)
+		s.logger.Errorfctx(logger.AppLog, ctx, false, "Error set stream status in Redis: %v", err)
 	}
 
 	defer func() {
@@ -80,7 +80,7 @@ func (s *service) StreamWhatsappQR(ctx context.Context, userID string, whatsappI
 
 		delErr := s.redis.Del(ctx, streamKey).Err()
 		if delErr != nil {
-			s.logger.Errorfctx(provider.AppLog, ctx, false, "Error delete stream status in Redis: %v", delErr)
+			s.logger.Errorfctx(logger.AppLog, ctx, false, "Error delete stream status in Redis: %v", delErr)
 		}
 	}()
 
@@ -89,7 +89,7 @@ func (s *service) StreamWhatsappQR(ctx context.Context, userID string, whatsappI
 	_, err = s.redis.Get(ctx, redisKey).Result()
 	if err != nil {
 		if err == redis.Nil {
-			s.logger.Errorfctx(provider.AppLog, ctx, false, "WhatsappID %s not found in Redis", whatsappID)
+			s.logger.Errorfctx(logger.AppLog, ctx, false, "WhatsappID %s not found in Redis", whatsappID)
 			s.hub.EmitMessageToClient(ctx, whatsappID, model.WSMessage{
 				MsgStatus:  false,
 				Type:       "error",
@@ -99,7 +99,7 @@ func (s *service) StreamWhatsappQR(ctx context.Context, userID string, whatsappI
 			})
 			return nil
 		}
-		s.logger.Errorfctx(provider.AppLog, ctx, false, "Error Redis: %v", err)
+		s.logger.Errorfctx(logger.AppLog, ctx, false, "Error Redis: %v", err)
 		return err
 	}
 
@@ -108,18 +108,18 @@ func (s *service) StreamWhatsappQR(ctx context.Context, userID string, whatsappI
 	}
 	stream, err := s.app.StreamConnectDevice(ctx, req)
 	if err != nil {
-		s.logger.Errorfctx(provider.AppLog, ctx, false, "Error calling GenerateNumbers: %v", err)
+		s.logger.Errorfctx(logger.AppLog, ctx, false, "Error calling GenerateNumbers: %v", err)
 		return err
 	}
 
 	for {
 		resp, err := stream.Recv()
 		if err == io.EOF {
-			s.logger.Infofctx(provider.AppLog, ctx, "Stream closed by server")
+			s.logger.Infofctx(logger.AppLog, ctx, "Stream closed by server")
 			break
 		}
 		if err != nil {
-			s.logger.Errorfctx(provider.AppLog, ctx, false, "Error receiving stream: %v", err)
+			s.logger.Errorfctx(logger.AppLog, ctx, false, "Error receiving stream: %v", err)
 		}
 
 		var message model.WSMessage
@@ -146,7 +146,7 @@ func (s *service) StreamWhatsappQR(ctx context.Context, userID string, whatsappI
 		}
 
 		if err := s.hub.EmitMessageToClient(ctx, whatsappID, message); err != nil {
-			s.logger.Errorfctx(provider.AppLog, ctx, false, "Error emitting QR code: %v", err)
+			s.logger.Errorfctx(logger.AppLog, ctx, false, "Error emitting QR code: %v", err)
 		}
 	}
 
